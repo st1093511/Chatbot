@@ -1,18 +1,27 @@
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
+from services.text_to_sql import get_schema, execute_crud
 
-class CRUDHandler:
-    def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4o-mini")
-        
-    def process(self, message: str) -> str:
-        prompt = PromptTemplate.from_template("""
-        Analyze the following message and determine if it's a CRUD operation (Create, Read, Update, Delete) on data.
-        If it is, perform the operation and return the result.
-        Otherwise, return an appropriate response.
-        
-        Message: {message}
-        """)
-        chain = prompt | self.llm
-        response = chain.invoke({"message": message})
-        return response.content.strip()
+load_dotenv()
+
+CRUD_PROMPT = ChatPromptTemplate.from_template("""
+Είσαι ειδικός SQL για SQLite.
+
+Schema:
+{schema}
+
+Ο χρήστης θέλει να κάνει αλλαγές στη βάση:
+"{question}"
+
+Γράψε ΜΟΝΟ το SQL (INSERT / UPDATE / DELETE).
+Χωρίς markdown, χωρίς εξήγηση.
+""")
+
+def handle_crud(question: str) -> str:
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    schema = get_schema()
+    chain = CRUD_PROMPT | llm
+    sql = chain.invoke({"schema": schema, "question": question}).content.strip()
+    result = execute_crud(sql)
+    return f"SQL εκτελέστηκε:\n```sql\n{sql}\n```\n\n{result}"
