@@ -1,18 +1,39 @@
 import os
 import re
-from dotenv import load_dotenv
+from google import genai as google_genai
+from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain_openai import OpenAIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_core.documents import Document
 
-load_dotenv()
-
 CHROMA_PATH = "./db/chroma_db"
 
+# ── Custom Embeddings (παρακάμπτει το langchain wrapper) ──
+class GeminiEmbeddings(Embeddings):
+    def __init__(self):
+        self.client = google_genai.Client(
+            api_key=os.environ["GOOGLE_API_KEY"],
+            http_options={"api_version": "v1"}
+        )
+        self.model = "models/text-embedding-004"
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        result = self.client.models.embed_content(
+            model=self.model,
+            contents=texts
+        )
+        return [e.values for e in result.embeddings]
+
+    def embed_query(self, text: str) -> list[float]:
+        result = self.client.models.embed_content(
+            model=self.model,
+            contents=[text]
+        )
+        return result.embeddings[0].values
+
 def _get_embeddings():
-    return OpenAIEmbeddings(model="text-embedding-3-small")
+    return GeminiEmbeddings()
 
 # ── Καθαρισμός κειμένου ──────────────────────────────────
 def clean_text(text: str) -> str:

@@ -1,9 +1,6 @@
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from services.text_to_sql import get_schema, execute_crud
-
-load_dotenv()
 
 CRUD_PROMPT = ChatPromptTemplate.from_template("""
 Είσαι ειδικός SQL για SQLite.
@@ -19,7 +16,7 @@ Schema:
 """)
 
 def handle_crud(question: str) -> str:
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
     schema = get_schema()
     chain = CRUD_PROMPT | llm
     sql = chain.invoke({"schema": schema, "question": question}).content.strip()

@@ -1,8 +1,5 @@
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-
-load_dotenv()
 
 ROUTER_PROMPT = ChatPromptTemplate.from_template("""
 Κατηγοριοποίησε την ερώτηση σε ΑΚΡΙΒΩΣ μία κατηγορία:
@@ -18,7 +15,7 @@ ROUTER_PROMPT = ChatPromptTemplate.from_template("""
 """)
 
 def route(question: str) -> str:
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
     chain = ROUTER_PROMPT | llm
     intent = chain.invoke({"question": question}).content.strip().upper()
     if intent not in ("RAG", "SQL", "CRUD", "UNKNOWN"):
