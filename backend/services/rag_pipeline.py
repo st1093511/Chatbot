@@ -1,7 +1,7 @@
 import os
 import re
-from google import genai as google_genai
-from langchain_core.embeddings import Embeddings
+import time
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
@@ -9,52 +9,31 @@ from langchain_core.documents import Document
 
 CHROMA_PATH = "./db/chroma_db"
 
-# ── Custom Embeddings (παρακάμπτει το langchain wrapper) ──
-class GeminiEmbeddings(Embeddings):
-    def __init__(self):
-        self.client = google_genai.Client(
-            api_key=os.environ["GOOGLE_API_KEY"],
-            http_options={"api_version": "v1"}
-        )
-        self.model = "models/text-embedding-004"
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        result = self.client.models.embed_content(
-            model=self.model,
-            contents=texts
-        )
-        return [e.values for e in result.embeddings]
-
-    def embed_query(self, text: str) -> list[float]:
-        result = self.client.models.embed_content(
-            model=self.model,
-            contents=[text]
-        )
-        return result.embeddings[0].values
-
+# ── Embeddings (τοπικά, χωρίς rate limit) ────────────────
 def _get_embeddings():
-    return GeminiEmbeddings()
+    return HuggingFaceEmbeddings(
+        model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+    )
 
 # ── Καθαρισμός κειμένου ──────────────────────────────────
 def clean_text(text: str) -> str:
     text = re.sub(r'\n{3,}', '\n\n', text)
     text = re.sub(r' {2,}', ' ', text)
-    text = re.sub(r'-\n(\w)', r'\1', text)   # ένωσε σπασμένες λέξεις
-    text = re.sub(r'\n\s*\d+\s*\n', '\n', text)  # αφαίρεσε μόνους αριθμούς σελίδας
+    text = re.sub(r'-\n(\w)', r'\1', text)
+    text = re.sub(r'\n\s*\d+\s*\n', '\n', text)
     return text.strip()
 
 # ── Έλεγχος αν PDF είναι scanned ─────────────────────────
 def is_scanned_pdf(file_path: str) -> bool:
     try:
-        import fitz  # pymupdf
+        import fitz
         doc = fitz.open(file_path)
         text_total = ""
         for i, page in enumerate(doc):
-            if i >= 3:  # έλεγξε μόνο τις 3 πρώτες σελίδες
+            if i >= 3:
                 break
             text_total += page.get_text()
         doc.close()
-        # Αν υπάρχουν λιγότεροι από 100 χαρακτήρες → πιθανώς scanned
         return len(text_total.strip()) < 100
     except:
         return False
@@ -64,9 +43,7 @@ def load_scanned_pdf(file_path: str) -> list[Document]:
     try:
         import pytesseract
         from pdf2image import convert_from_path
-        from PIL import Image
 
-        # Ορισμός path για Windows
         pytesseract.pytesseract.tesseract_cmd = (
             r"C:\Program Files\Tesseract-OCR\tesseract.exe"
         )
@@ -76,7 +53,6 @@ def load_scanned_pdf(file_path: str) -> list[Document]:
         docs = []
 
         for i, page_img in enumerate(pages):
-            # OCR με Ελληνικά + Αγγλικά
             text = pytesseract.image_to_string(
                 page_img,
                 lang="ell+eng",
@@ -104,7 +80,6 @@ def load_normal_pdf(file_path: str) -> list[Document]:
         docs = []
 
         for i, page in enumerate(doc):
-            # Εξαγωγή με διατήρηση layout
             text = page.get_text("text")
             text = clean_text(text)
             if len(text.strip()) > 30:
@@ -140,15 +115,12 @@ def ingest_file(file_path: str) -> int:
     if not docs:
         raise ValueError("Δεν ήταν δυνατή η εξαγωγή κειμένου από το αρχείο.")
 
-    # Chunking
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
         separators=["\n\n", "\n", ". ", "! ", "? ", " "]
     )
     chunks = splitter.split_documents(docs)
-
-    # Φίλτραρε πολύ μικρά chunks
     chunks = [c for c in chunks if len(c.page_content.strip()) > 30]
 
     if not chunks:

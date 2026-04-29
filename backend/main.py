@@ -18,7 +18,7 @@ from services.rag_pipeline import ingest_file, retrieve
 from services.text_to_sql import get_schema, execute_select, ingest_csv
 from services.crud_handler import handle_crud
 
-MODEL = "gemini-2.5-flash"          # ← δωρεάν tier (αντί για gemini-2.0-flash-lite)
+MODEL = "gemini-2.5-flash"
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 app = FastAPI()
 
@@ -30,19 +30,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Κρατά τον τύπο του τελευταίου αρχείου που ανέβηκε
+uploaded_file_type: str = None
+
+
 # ── Upload ────────────────────────────────────────────────
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
+    global uploaded_file_type
     os.makedirs("./uploads", exist_ok=True)
     path = f"./uploads/{file.filename}"
     with open(path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
     if file.filename.endswith(".csv"):
+        uploaded_file_type = "csv"
         table = file.filename.replace(".csv", "").replace("-", "_")
         rows = ingest_csv(path, table)
         return {"message": f"CSV φορτώθηκε ως table '{table}' ({rows} γραμμές)"}
     else:
+        uploaded_file_type = "pdf"
         chunks = ingest_file(path)
         return {"message": f"Έγγραφο φορτώθηκε ({chunks} chunks)"}
 
@@ -50,7 +57,13 @@ async def upload(file: UploadFile = File(...)):
 # ── Chat ──────────────────────────────────────────────────
 @app.post("/chat")
 async def chat(question: str = Form(...)):
-    intent = route(question)
+    global uploaded_file_type
+
+    # Αν έχει ανεβεί PDF, πάντα RAG — παρακάμπτουμε τον router
+    if uploaded_file_type == "pdf":
+        intent = "RAG"
+    else:
+        intent = route(question)
 
     async def stream_response(system: str, user: str):
         yield f"data: {json.dumps({'type': 'intent', 'value': intent})}\n\n"
